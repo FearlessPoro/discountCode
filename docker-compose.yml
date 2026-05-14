@@ -1,0 +1,35 @@
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: discount-code-mariadb
+    environment:
+      MARIADB_DATABASE: discount_code
+      MARIADB_USER: discount_code
+      MARIADB_PASSWORD: discount_code
+      MARIADB_ROOT_PASSWORD: discount_code_root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  app:
+    build: .
+    container_name: discount-code-app
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mariadb://mariadb:3306/discount_code
+      SPRING_DATASOURCE_USERNAME: discount_code
+      SPRING_DATASOURCE_PASSWORD: discount_code
+    ports:
+      - "8080:8080"
+
+volumes:
+  mariadb-data:
