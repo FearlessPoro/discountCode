@@ -113,6 +113,28 @@ With MariaDB already running, start the app locally:
 
 The app listens on port `8080`.
 
+## Coupon API
+
+Create a coupon:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8080/api/coupons `
+  -ContentType "application/json" `
+  -Body '{"code":"save10","maxUses":10,"countryCode":"pl"}'
+```
+
+The service stores coupon codes and country codes normalized to uppercase. Coupon codes must be 1-50 ASCII letters or digits; creation rejects spaces instead of trimming them. `maxUses` must be greater than zero, and `countryCode` must be a valid ISO 3166-1 alpha-2 code.
+
+Fetch a coupon for manual verification:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/api/coupons/save10
+```
+
+`POST /api/coupons` returns `201 Created` with the stored coupon. Invalid input returns a structured `400 Bad Request`, duplicate coupon codes return `409 Conflict`, missing coupon lookups return `404 Not Found`, and unexpected failures return a vague structured `500` response. Authentication is intentionally out of scope for this version, but coupon creation must be protected before production use.
+
 The default local datasource configuration is in `src/main/resources/application.properties`:
 
 ```properties
