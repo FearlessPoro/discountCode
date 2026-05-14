@@ -20,6 +20,13 @@ docker compose version
 
 ## Database
 
+The local database is intentionally simple to set up:
+
+1. Docker Compose starts MariaDB.
+2. The Spring Boot app connects to it.
+3. Flyway runs the SQL migrations from `src/main/resources/db/migration`.
+4. The schema is ready before the app finishes startup.
+
 Start MariaDB locally:
 
 ```powershell
@@ -41,6 +48,44 @@ password: discount_code
 root password: discount_code_root
 port: 3306
 ```
+
+Run the app once to apply Flyway migrations:
+
+```powershell
+.\gradlew.bat bootRun
+```
+
+On a fresh database, startup logs should show Flyway validating and applying the migrations:
+
+```text
+Migrating schema `discount_code` to version "1 - create coupons"
+Migrating schema `discount_code` to version "2 - create coupon usages"
+Successfully applied 2 migrations
+```
+
+You can verify the tables directly through the MariaDB container:
+
+```powershell
+docker compose exec mariadb mariadb -udiscount_code -pdiscount_code discount_code -e "SHOW TABLES;"
+```
+
+Expected application tables:
+
+```text
+coupons
+coupon_usages
+flyway_schema_history
+```
+
+You can also insert a minimal coupon and usage row to sanity-check the constraints:
+
+```powershell
+docker compose exec mariadb mariadb -udiscount_code -pdiscount_code discount_code -e "INSERT INTO coupons (code, max_uses, country_code) VALUES ('SAVE10', 2, 'PL'); INSERT INTO coupon_usages (coupon_id, user_id, ip_address, resolved_country_code) VALUES (1, 'user-1', '203.0.113.10', 'PL'); SELECT * FROM coupons; SELECT * FROM coupon_usages;"
+```
+
+Running the same usage insert again should fail because `(coupon_id, user_id)` is unique. Running the same coupon insert again should fail because `code` is unique.
+
+Flyway owns schema creation and evolution. Do not create or change application tables manually for normal development; add a new migration instead. Coupon redemption audit rows store `user_id`, `ip_address`, and `resolved_country_code`; production deployments should define retention and deletion rules for those fields.
 
 ## Build And Test
 
