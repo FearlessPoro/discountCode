@@ -65,4 +65,15 @@ public class Coupon {
     public String countryCode() {
         return countryCode;
     }
+
+    public boolean hasReachedUsageLimit() {
+        return currentUses >= maxUses;
+    }
+
+    public void incrementCurrentUses() {
+        if (hasReachedUsageLimit()) {
+            throw new IllegalStateException("Coupon usage limit has been reached.");
+        }
+        currentUses++;
+    }
 }

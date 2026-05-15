@@ -6,6 +6,8 @@ public enum ErrorCode {
     DUPLICATE_COUPON_CODE("Coupon code already exists."),
     COUNTRY_NOT_VERIFIED("Country could not be verified."),
     COUPON_COUNTRY_MISMATCH("Coupon cannot be redeemed from this country."),
+    COUPON_USAGE_LIMIT_REACHED("Coupon usage limit has been reached."),
+    COUPON_ALREADY_REDEEMED("Coupon has already been redeemed by this user."),
     GEOIP_DEPENDENCY_UNAVAILABLE("Country verification service is unavailable."),
     INTERNAL_ERROR("Unexpected error.");
 
