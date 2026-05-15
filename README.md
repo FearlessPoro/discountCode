@@ -113,6 +113,27 @@ With MariaDB already running, start the app locally:
 
 The app listens on port `8080`.
 
+The production-like GeoIP mode is enabled by default:
+
+```properties
+app.geoip.provider=ip-api
+```
+
+This calls the free `ip-api.com` HTTP endpoint. That keeps setup simple for the assignment, but production deployments should use an HTTPS provider, a paid `ip-api.com` plan, another trusted GeoIP service, or a local GeoIP database. Local and test runs can use the deterministic stub resolver instead:
+
+```powershell
+$env:APP_GEOIP_PROVIDER = "stub"
+.\gradlew.bat bootRun
+```
+
+Client IP resolution trusts the first value in `X-Forwarded-For` and falls back to the request remote address. That is only safe when requests arrive through trusted infrastructure such as an owned frontend, reverse proxy, or load balancer. Public direct-to-backend traffic can forge this header; a production version should make this explicit with a feature flag such as `app.client-ip.trust-forwarded-headers=true`.
+
+Optionally check the real GeoIP provider from PowerShell:
+
+```powershell
+.\scripts\check-geoip.ps1 -IpAddress 8.8.8.8
+```
+
 ## Coupon API
 
 Create a coupon:
