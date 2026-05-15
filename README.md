@@ -21,16 +21,6 @@ Authentication is intentionally out of scope for this assignment version. A prod
 - Docker Desktop with Docker Compose
 - Internet access for the first Gradle/Docker run, so dependencies and images can be downloaded
 
-Check the local tools:
-
-```powershell
-java -version
-docker --version
-docker compose version
-```
-
-`java -version` should report Java 21.
-
 ## Run Locally
 
 Start MariaDB:
