@@ -115,12 +115,6 @@ You can also map specific IP addresses in stub mode:
 .\gradlew.bat bootRun --args="--app.geoip.provider=stub --app.geoip.stub.country-by-ip[203.0.113.10]=US --app.geoip.stub.default-country-code=PL"
 ```
 
-Optional real-provider check:
-
-```powershell
-.\scripts\check-geoip.ps1 -IpAddress 8.8.8.8
-```
-
 GeoIP behavior:
 
 - Private/local/unrecognized IPs, missing provider country codes, or malformed country codes return `403 COUNTRY_NOT_VERIFIED`.
@@ -292,10 +286,3 @@ Future high-volume options include:
 - Provider-specific queueing or reservation strategy for campaign traffic spikes.
 
 If the data model is sharded later, prefer `coupon_id` or normalized `coupon_code` as the shard key. Sharding by `user_id` would spread a single coupon's usage counter across shards and make max-use enforcement distributed and harder.
-
-## Logging And Data
-
-Coupon usage rows store `user_id`, `ip_address`, and `resolved_country_code` for auditability. This first version keeps usage rows indefinitely; production systems should define retention and deletion rules for `userId`, `ipAddress`, and `resolvedCountryCode`.
-
-Operational logs should cover startup/configuration, coupon creation success and failure, redemption success and failure, GeoIP dependency failures, and unexpected exceptions. Logs should prefer error codes, counts, correlation/request IDs, and masked or hashed identifiers. Avoid raw IP addresses, raw `userId` values, full failed coupon codes, and provider response bodies where possible.
-
