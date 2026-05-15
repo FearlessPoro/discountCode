@@ -253,25 +253,6 @@ Run MariaDB and the app together:
 docker compose up -d
 ```
 
-View container status and logs:
-
-```powershell
-docker compose ps
-docker compose logs -f app
-```
-
-Stop the local stack:
-
-```powershell
-docker compose down
-```
-
-Remove the MariaDB volume as well:
-
-```powershell
-docker compose down -v
-```
-
 ## Concurrency And Scalability
 
 Multiple app instances can run because durable state lives in MariaDB. Database constraints protect key invariants: coupon code uniqueness, one usage row per coupon/user pair, valid usage counts, and valid stored country code shapes.
