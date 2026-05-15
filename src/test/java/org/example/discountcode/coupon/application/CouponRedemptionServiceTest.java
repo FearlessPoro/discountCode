@@ -19,6 +19,7 @@ import org.example.discountcode.coupon.domain.Coupon;
 import org.example.discountcode.coupon.domain.CouponUsage;
 import org.example.discountcode.coupon.infrastructure.CouponRepository;
 import org.example.discountcode.coupon.infrastructure.CouponUsageRepository;
+import org.example.discountcode.testdata.DemoTestData;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,24 +66,30 @@ class CouponRedemptionServiceTest {
 
     @Test
     void redeemsCouponWithNormalizedTrimmedCode() {
-        Coupon coupon = new Coupon("SAVE10", 2, "PL", NOW);
-        when(couponRepository.findByCode("SAVE10")).thenReturn(Optional.of(coupon));
-        when(countryRestrictionService.verifyCouponCountry(coupon, "203.0.113.10")).thenReturn("PL");
-        when(couponRepository.findByCodeForUpdate("SAVE10")).thenReturn(Optional.of(coupon));
+        Coupon coupon = DemoTestData.plTestCoupon(NOW);
+        when(couponRepository.findByCode(DemoTestData.PLTEST_CODE)).thenReturn(Optional.of(coupon));
+        when(countryRestrictionService.verifyCouponCountry(coupon, "203.0.113.10"))
+                .thenReturn(DemoTestData.PL_COUNTRY);
+        when(couponRepository.findByCodeForUpdate(DemoTestData.PLTEST_CODE)).thenReturn(Optional.of(coupon));
         when(couponUsageRepository.saveAndFlush(any(CouponUsage.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        RedeemCouponResponse response = service.redeemCoupon(" save10 ", "user-1", "203.0.113.10");
+        RedeemCouponResponse response = service.redeemCoupon(" pltest ", DemoTestData.USER_1, "203.0.113.10");
 
-        assertThat(response).isEqualTo(new RedeemCouponResponse("SAVE10", "user-1", NOW, "REDEEMED"));
+        assertThat(response).isEqualTo(new RedeemCouponResponse(
+                DemoTestData.PLTEST_CODE,
+                DemoTestData.USER_1,
+                NOW,
+                "REDEEMED"
+        ));
         assertThat(coupon.currentUses()).isEqualTo(1);
 
         ArgumentCaptor<CouponUsage> usageCaptor = ArgumentCaptor.forClass(CouponUsage.class);
         verify(couponUsageRepository).saveAndFlush(usageCaptor.capture());
         assertThat(usageCaptor.getValue().coupon()).isSameAs(coupon);
-        assertThat(usageCaptor.getValue().userId()).isEqualTo("user-1");
+        assertThat(usageCaptor.getValue().userId()).isEqualTo(DemoTestData.USER_1);
         assertThat(usageCaptor.getValue().usedAt()).isEqualTo(NOW);
         assertThat(usageCaptor.getValue().ipAddress()).isEqualTo("203.0.113.10");
-        assertThat(usageCaptor.getValue().resolvedCountryCode()).isEqualTo("PL");
+        assertThat(usageCaptor.getValue().resolvedCountryCode()).isEqualTo(DemoTestData.PL_COUNTRY);
     }
 
     @Test
@@ -119,13 +126,14 @@ class CouponRedemptionServiceTest {
 
     @Test
     void reachedUsageLimitReturnsForbidden() {
-        Coupon coupon = new Coupon("SAVE10", 1, "PL", NOW);
+        Coupon coupon = DemoTestData.limitOneCoupon(NOW);
         coupon.incrementCurrentUses();
-        when(couponRepository.findByCode("SAVE10")).thenReturn(Optional.of(coupon));
-        when(countryRestrictionService.verifyCouponCountry(coupon, "203.0.113.10")).thenReturn("PL");
-        when(couponRepository.findByCodeForUpdate("SAVE10")).thenReturn(Optional.of(coupon));
+        when(couponRepository.findByCode(DemoTestData.LIMIT1_CODE)).thenReturn(Optional.of(coupon));
+        when(countryRestrictionService.verifyCouponCountry(coupon, "203.0.113.10"))
+                .thenReturn(DemoTestData.US_COUNTRY);
+        when(couponRepository.findByCodeForUpdate(DemoTestData.LIMIT1_CODE)).thenReturn(Optional.of(coupon));
 
-        assertThatThrownBy(() -> service.redeemCoupon("SAVE10", "user-1", "203.0.113.10"))
+        assertThatThrownBy(() -> service.redeemCoupon(DemoTestData.LIMIT1_CODE, DemoTestData.USER_1, "203.0.113.10"))
                 .isInstanceOfSatisfying(BusinessException.class, exception -> {
                     assertThat(exception.errorCode()).isEqualTo(ErrorCode.COUPON_USAGE_LIMIT_REACHED);
                     assertThat(exception.status()).isEqualTo(HttpStatus.FORBIDDEN);
@@ -136,13 +144,14 @@ class CouponRedemptionServiceTest {
 
     @Test
     void duplicateUsageReturnsForbiddenAndDoesNotIncrementUsageCount() {
-        Coupon coupon = new Coupon("SAVE10", 2, "PL", NOW);
-        when(couponRepository.findByCode("SAVE10")).thenReturn(Optional.of(coupon));
-        when(countryRestrictionService.verifyCouponCountry(coupon, "203.0.113.10")).thenReturn("PL");
-        when(couponRepository.findByCodeForUpdate("SAVE10")).thenReturn(Optional.of(coupon));
+        Coupon coupon = DemoTestData.plTestCoupon(NOW);
+        when(couponRepository.findByCode(DemoTestData.PLTEST_CODE)).thenReturn(Optional.of(coupon));
+        when(countryRestrictionService.verifyCouponCountry(coupon, "203.0.113.10"))
+                .thenReturn(DemoTestData.PL_COUNTRY);
+        when(couponRepository.findByCodeForUpdate(DemoTestData.PLTEST_CODE)).thenReturn(Optional.of(coupon));
         when(couponUsageRepository.saveAndFlush(any(CouponUsage.class))).thenThrow(duplicateUsageViolation());
 
-        assertThatThrownBy(() -> service.redeemCoupon("SAVE10", "user-1", "203.0.113.10"))
+        assertThatThrownBy(() -> service.redeemCoupon(DemoTestData.PLTEST_CODE, DemoTestData.USER_1, "203.0.113.10"))
                 .isInstanceOfSatisfying(BusinessException.class, exception -> {
                     assertThat(exception.errorCode()).isEqualTo(ErrorCode.COUPON_ALREADY_REDEEMED);
                     assertThat(exception.status()).isEqualTo(HttpStatus.FORBIDDEN);

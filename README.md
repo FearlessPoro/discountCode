@@ -77,13 +77,21 @@ coupon_usages
 flyway_schema_history
 ```
 
-You can also insert a minimal coupon and usage row to sanity-check the constraints:
+You can seed repeatable manual demo coupons after the app has run once and Flyway has created the schema:
 
 ```powershell
-docker compose exec mariadb mariadb -udiscount_code -pdiscount_code discount_code -e "INSERT INTO coupons (code, max_uses, country_code) VALUES ('SAVE10', 2, 'PL'); INSERT INTO coupon_usages (coupon_id, user_id, ip_address, resolved_country_code) VALUES (1, 'user-1', '203.0.113.10', 'PL'); SELECT * FROM coupons; SELECT * FROM coupon_usages;"
+.\scripts\seed-demo-data.ps1
 ```
 
-Running the same usage insert again should fail because `(coupon_id, user_id)` is unique. Running the same coupon insert again should fail because `code` is unique.
+The script connects to the MariaDB service from Docker Compose and upserts these coupons without adding any production Flyway migration data:
+
+```text
+PLTEST  country PL  max uses 2
+USTEST  country US  max uses 1
+LIMIT1  country US  max uses 1
+```
+
+Use `user-1`, `user-2`, and `user-3` as demo `userId` values in redemption requests. Re-running the script resets usage rows for those demo coupons so manual demos can start from a known state. Automated tests create their own data and do not depend on this script.
 
 Flyway owns schema creation and evolution. Do not create or change application tables manually for normal development; add a new migration instead. Coupon redemption audit rows store `user_id`, `ip_address`, and `resolved_country_code`; production deployments should define retention and deletion rules for those fields.
 
