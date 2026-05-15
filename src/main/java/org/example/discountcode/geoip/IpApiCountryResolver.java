@@ -11,12 +11,16 @@ public class IpApiCountryResolver implements CountryResolver {
     private final RestClient restClient;
 
     public IpApiCountryResolver(RestClient.Builder restClientBuilder, Duration timeout) {
+        this(restClientBuilder, timeout, "http://ip-api.com");
+    }
+
+    IpApiCountryResolver(RestClient.Builder restClientBuilder, Duration timeout, String baseUrl) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(timeout);
         requestFactory.setReadTimeout(timeout);
         this.restClient = restClientBuilder
                 .requestFactory(requestFactory)
-                .baseUrl("http://ip-api.com")
+                .baseUrl(baseUrl)
                 .build();
     }
 

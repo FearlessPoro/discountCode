@@ -69,6 +69,12 @@ public class CouponService {
 
     private boolean isDuplicateCouponCode(DataIntegrityViolationException exception) {
         return exception.getCause() instanceof ConstraintViolationException constraintViolationException
-                && "uk_coupons_code".equals(constraintViolationException.getConstraintName());
+                && hasConstraintName(constraintViolationException, "uk_coupons_code");
+    }
+
+    private boolean hasConstraintName(ConstraintViolationException exception, String constraintName) {
+        String actualConstraintName = exception.getConstraintName();
+        return actualConstraintName != null
+                && actualConstraintName.toLowerCase(Locale.ROOT).contains(constraintName);
     }
 }
