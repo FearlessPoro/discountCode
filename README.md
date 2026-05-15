@@ -30,15 +30,7 @@ docker compose up -d mariadb
 docker compose ps
 ```
 
-Local database settings are defined in `docker-compose.yml`:
-
-```text
-database: discount_code
-user: discount_code
-password: discount_code
-root password: discount_code_root
-port: 3306
-```
+Local database settings are defined in `docker-compose.yml`
 
 Start the app:
 
