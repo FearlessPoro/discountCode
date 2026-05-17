@@ -23,9 +23,29 @@ class IpApiCountryResolverTest {
     }
 
     @Test
+    void returnsNormalizedCountryCodeForSuccessfulProviderResponse() throws Exception {
+        CountryResolver resolver = resolverReturning(200, """
+                {"status":"success","countryCode":"pl"}
+                """);
+
+        assertThat(resolver.resolveCountryCode("203.0.113.10")).isEqualTo("PL");
+    }
+
+    @Test
     void treatsMissingCountryCodeAsResolutionFailure() throws Exception {
         CountryResolver resolver = resolverReturning(200, """
                 {"status":"success"}
+                """);
+
+        assertThatThrownBy(() -> resolver.resolveCountryCode("203.0.113.10"))
+                .isInstanceOfSatisfying(CountryResolutionException.class, exception ->
+                        assertThat(exception.reason()).isEqualTo(CountryResolutionException.Reason.COUNTRY_NOT_VERIFIED));
+    }
+
+    @Test
+    void treatsMalformedCountryCodeAsResolutionFailure() throws Exception {
+        CountryResolver resolver = resolverReturning(200, """
+                {"status":"success","countryCode":"POL"}
                 """);
 
         assertThatThrownBy(() -> resolver.resolveCountryCode("203.0.113.10"))

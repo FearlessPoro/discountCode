@@ -12,19 +12,25 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.example.discountcode.common.BusinessException;
 import org.example.discountcode.common.ErrorCode;
 import org.example.discountcode.coupon.api.request.CreateCouponRequest;
 import org.example.discountcode.coupon.api.response.CouponResponse;
 import org.example.discountcode.coupon.domain.Coupon;
 import org.example.discountcode.coupon.infrastructure.CouponRepository;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 
@@ -59,6 +65,75 @@ class CouponServiceTest {
         assertThat(couponCaptor.getValue().countryCode()).isEqualTo("PL");
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "a,A",
+            "A,A",
+            "save10,SAVE10",
+            "12345,12345",
+            "abcXYZ123,ABCXYZ123"
+    })
+    void createsCouponsWithValidCodeVariants(String rawCode, String expectedCode) {
+        when(couponRepository.saveAndFlush(any(Coupon.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CouponResponse response = couponService.createCoupon(new CreateCouponRequest(rawCode, 1, "PL"));
+
+        assertThat(response.code()).isEqualTo(expectedCode);
+    }
+
+    @Test
+    void acceptsCouponCodeAtMaximumLength() {
+        String rawCode = "a".repeat(50);
+        when(couponRepository.saveAndFlush(any(Coupon.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CouponResponse response = couponService.createCoupon(new CreateCouponRequest(rawCode, 1, "PL"));
+
+        assertThat(response.code()).isEqualTo("A".repeat(50));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", " SAVE10", "SAVE10 ", "SAVE-10", "SAVE_10", "SAVE.10", "ZAŻÓŁĆ", "abc!"})
+    void rejectsInvalidCouponCodes(String rawCode) {
+        assertThatThrownBy(() -> couponService.createCoupon(new CreateCouponRequest(rawCode, 5, "PL")))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(couponRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void rejectsCouponCodeOverMaximumLength() {
+        assertThatThrownBy(() -> couponService.createCoupon(new CreateCouponRequest("A".repeat(51), 5, "PL")))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(couponRepository, never()).saveAndFlush(any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "pl,PL",
+            "PL,PL",
+            "us,US",
+            "de,DE",
+            "gb,GB"
+    })
+    void createsCouponsWithValidCountryVariants(String rawCountryCode, String expectedCountryCode) {
+        when(couponRepository.saveAndFlush(any(Coupon.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CouponResponse response = couponService.createCoupon(new CreateCouponRequest("SAVE10", 5, rawCountryCode));
+
+        assertThat(response.countryCode()).isEqualTo(expectedCountryCode);
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidMaxUses")
+    void rejectsInvalidMaxUsesAtServiceBoundary(Integer maxUses) {
+        assertThatThrownBy(() -> couponService.createCoupon(new CreateCouponRequest("SAVE10", maxUses, "PL")))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(couponRepository, never()).saveAndFlush(any());
+    }
+
     @Test
     void mapsDuplicateCouponInsertToConflict() {
         ConstraintViolationException constraintViolationException = new ConstraintViolationException(
@@ -80,14 +155,6 @@ class CouponServiceTest {
     void rejectsSpacesInCreatedCouponCode() {
         assertThatThrownBy(() -> couponService.createCoupon(new CreateCouponRequest(" SAVE10 ", 5, "PL")))
                 .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void rejectsInvalidMaxUsesAtServiceBoundary() {
-        assertThatThrownBy(() -> couponService.createCoupon(new CreateCouponRequest("SAVE10", 0, "PL")))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        verify(couponRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -149,15 +216,17 @@ class CouponServiceTest {
                 });
     }
 
-    @Test
-    void rejectsInvalidCountryCode() {
-        assertThatThrownBy(() -> couponService.createCoupon(new CreateCouponRequest("SAVE10", 5, "XX")))
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "X", "XXX", "XX", "P1", "P L", "日本"})
+    void rejectsInvalidCountryCode(String rawCountryCode) {
+        assertThatThrownBy(() -> couponService.createCoupon(new CreateCouponRequest("SAVE10", 5, rawCountryCode)))
                 .isInstanceOf(IllegalArgumentException.class);
+
+        verify(couponRepository, never()).saveAndFlush(any());
     }
 
-    @Test
-    void rejectsBlankCountryCode() {
-        assertThatThrownBy(() -> couponService.createCoupon(new CreateCouponRequest("SAVE10", 5, " ")))
-                .isInstanceOf(IllegalArgumentException.class);
+    private static Stream<Integer> invalidMaxUses() {
+        return Stream.of(null, 0, -1, Integer.MIN_VALUE);
     }
 }

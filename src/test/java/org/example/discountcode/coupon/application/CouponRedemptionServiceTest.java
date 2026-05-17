@@ -12,6 +12,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.example.discountcode.common.BusinessException;
 import org.example.discountcode.common.ErrorCode;
 import org.example.discountcode.coupon.api.response.RedeemCouponResponse;
@@ -24,6 +25,8 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -104,6 +107,17 @@ class CouponRedemptionServiceTest {
     }
 
     @Test
+    void nullRedeemCodeReturnsNotFound() {
+        assertThatThrownBy(() -> service.redeemCoupon(null, "user-1", "203.0.113.10"))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                    assertThat(exception.errorCode()).isEqualTo(ErrorCode.COUPON_NOT_FOUND);
+                    assertThat(exception.status()).isEqualTo(HttpStatus.NOT_FOUND);
+                });
+
+        verify(couponRepository, never()).findByCode(any());
+    }
+
+    @Test
     void missingCouponReturnsNotFoundBeforeCountryLookup() {
         when(couponRepository.findByCode("SAVE10")).thenReturn(Optional.empty());
 
@@ -116,9 +130,10 @@ class CouponRedemptionServiceTest {
         verify(countryRestrictionService, never()).verifyCouponCountry(any(), any());
     }
 
-    @Test
-    void rejectsInvalidUserIdAtServiceBoundary() {
-        assertThatThrownBy(() -> service.redeemCoupon("SAVE10", "", "203.0.113.10"))
+    @ParameterizedTest
+    @MethodSource("invalidUserIds")
+    void rejectsInvalidUserIdAtServiceBoundary(String userId) {
+        assertThatThrownBy(() -> service.redeemCoupon("SAVE10", userId, "203.0.113.10"))
                 .isInstanceOf(IllegalArgumentException.class);
 
         verify(couponRepository, never()).findByCode(any());
@@ -138,6 +153,38 @@ class CouponRedemptionServiceTest {
                     assertThat(exception.errorCode()).isEqualTo(ErrorCode.COUPON_USAGE_LIMIT_REACHED);
                     assertThat(exception.status()).isEqualTo(HttpStatus.FORBIDDEN);
                 });
+
+        verify(couponUsageRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void countryVerificationFailureDoesNotOpenRedemptionTransaction() {
+        Coupon coupon = DemoTestData.plTestCoupon(NOW);
+        when(couponRepository.findByCode(DemoTestData.PLTEST_CODE)).thenReturn(Optional.of(coupon));
+        when(countryRestrictionService.verifyCouponCountry(coupon, "203.0.113.10"))
+                .thenThrow(new BusinessException(ErrorCode.COUPON_COUNTRY_MISMATCH, HttpStatus.FORBIDDEN));
+
+        assertThatThrownBy(() -> service.redeemCoupon(DemoTestData.PLTEST_CODE, DemoTestData.USER_1, "203.0.113.10"))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.errorCode()).isEqualTo(ErrorCode.COUPON_COUNTRY_MISMATCH));
+
+        verify(couponRepository, never()).findByCodeForUpdate(any());
+        verify(couponUsageRepository, never()).saveAndFlush(any());
+        assertThat(coupon.currentUses()).isZero();
+    }
+
+    @Test
+    void duplicateUserOnExhaustedCouponReturnsLimitReachedBeforeDuplicateCheck() {
+        Coupon coupon = DemoTestData.limitOneCoupon(NOW);
+        coupon.incrementCurrentUses();
+        when(couponRepository.findByCode(DemoTestData.LIMIT1_CODE)).thenReturn(Optional.of(coupon));
+        when(countryRestrictionService.verifyCouponCountry(coupon, "203.0.113.10"))
+                .thenReturn(DemoTestData.US_COUNTRY);
+        when(couponRepository.findByCodeForUpdate(DemoTestData.LIMIT1_CODE)).thenReturn(Optional.of(coupon));
+
+        assertThatThrownBy(() -> service.redeemCoupon(DemoTestData.LIMIT1_CODE, DemoTestData.USER_1, "203.0.113.10"))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.errorCode()).isEqualTo(ErrorCode.COUPON_USAGE_LIMIT_REACHED));
 
         verify(couponUsageRepository, never()).saveAndFlush(any());
     }
@@ -166,6 +213,10 @@ class CouponRedemptionServiceTest {
                 "uk_coupon_usages_coupon_user"
         );
         return new DataIntegrityViolationException("Duplicate coupon usage.", constraintViolationException);
+    }
+
+    private static Stream<String> invalidUserIds() {
+        return Stream.of(null, "", "A".repeat(101));
     }
 
     private static class ImmediateTransactionManager implements PlatformTransactionManager {

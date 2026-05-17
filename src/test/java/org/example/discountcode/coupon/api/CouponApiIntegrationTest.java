@@ -6,10 +6,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.stream.Stream;
 import org.example.discountcode.coupon.infrastructure.CouponRepository;
 import org.example.discountcode.coupon.infrastructure.CouponUsageRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -24,7 +27,8 @@ import org.springframework.web.client.RestClient;
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "spring.flyway.enabled=false",
         "app.geoip.provider=stub",
-        "app.geoip.stub.default-country-code=PL"
+        "app.geoip.stub.default-country-code=PL",
+        "app.geoip.stub.country-by-ip[198.51.100.20]=US"
 })
 class CouponApiIntegrationTest {
 
@@ -89,6 +93,12 @@ class CouponApiIntegrationTest {
                 """), 409, "DUPLICATE_COUPON_CODE");
     }
 
+    @ParameterizedTest
+    @MethodSource("invalidCreateCouponBodies")
+    void invalidCouponCreationBodiesReturnStructuredBadRequest(String body) throws Exception {
+        assertError(postJson("/api/coupons", body), 400, "INVALID_REQUEST");
+    }
+
     @Test
     void missingAndBlankLookupReturnNotFound() throws Exception {
         assertError(getJson("/api/coupons/MISSING"), 404, "COUPON_NOT_FOUND");
@@ -108,6 +118,26 @@ class CouponApiIntegrationTest {
         assertThat(json(redeemed).get("userId").asText()).isEqualTo("user-1");
         assertThat(json(redeemed).get("status").asText()).isEqualTo("REDEEMED");
         assertThat(json(redeemed).has("currentUses")).isFalse();
+    }
+
+    @Test
+    void redeemsMultipleCouponsAcrossCountriesAndPersistsCounters() throws Exception {
+        createCoupon("PLMULTI", 3, "PL");
+        createCoupon("USMULTI", 2, "US");
+
+        redeem("PLMULTI", "pl-user-1");
+        redeem("PLMULTI", "pl-user-2");
+        redeem("USMULTI", "us-user-1", "198.51.100.20");
+
+        assertThat(couponUsageRepository.count()).isEqualTo(3);
+        assertThat(couponRepository.findByCode("PLMULTI").orElseThrow().currentUses()).isEqualTo(2);
+        assertThat(couponRepository.findByCode("USMULTI").orElseThrow().currentUses()).isEqualTo(1);
+
+        ApiResult fetchedPl = getJson("/api/coupons/plmulti");
+        assertThat(json(fetchedPl).get("currentUses").asInt()).isEqualTo(2);
+
+        ApiResult fetchedUs = getJson("/api/coupons/usmulti");
+        assertThat(json(fetchedUs).get("currentUses").asInt()).isEqualTo(1);
     }
 
     @Test
@@ -137,6 +167,28 @@ class CouponApiIntegrationTest {
                 """), 403, "COUPON_ALREADY_REDEEMED");
     }
 
+    @ParameterizedTest
+    @MethodSource("invalidRedeemBodies")
+    void invalidRedeemBodiesReturnStructuredBadRequest(String body) throws Exception {
+        createCoupon("USERCHECK", 1, "PL");
+
+        assertError(postJson("/api/coupons/usercheck/redeem", body), 400, "INVALID_REQUEST");
+        assertThat(couponUsageRepository.count()).isZero();
+        assertThat(couponRepository.findByCode("USERCHECK").orElseThrow().currentUses()).isZero();
+    }
+
+    @Test
+    void wrongCountryRedemptionDoesNotPersistUsageOrIncrementCounter() throws Exception {
+        createCoupon("PLONLY2", 2, "PL");
+
+        assertError(postJson("/api/coupons/plonly2/redeem", """
+                {"userId":"user-1"}
+                """, "X-Forwarded-For", "198.51.100.20"), 403, "COUPON_COUNTRY_MISMATCH");
+
+        assertThat(couponUsageRepository.count()).isZero();
+        assertThat(couponRepository.findByCode("PLONLY2").orElseThrow().currentUses()).isZero();
+    }
+
     @Test
     void validationErrorsDoNotEchoFullFailedCouponCode() throws Exception {
         ApiResult result = getJson("/api/coupons/THISCOUPONDOESNOTEXIST123");
@@ -155,6 +207,12 @@ class CouponApiIntegrationTest {
         assertThat(postJson("/api/coupons/%s/redeem".formatted(code), """
                 {"userId":"%s"}
                 """.formatted(userId)).status().value()).isEqualTo(200);
+    }
+
+    private void redeem(String code, String userId, String forwardedFor) throws Exception {
+        assertThat(postJson("/api/coupons/%s/redeem".formatted(code), """
+                {"userId":"%s"}
+                """.formatted(userId), "X-Forwarded-For", forwardedFor).status().value()).isEqualTo(200);
     }
 
     private void assertError(ApiResult result, int status, String code) throws Exception {
@@ -201,6 +259,45 @@ class CouponApiIntegrationTest {
 
     private JsonNode json(ApiResult result) throws IOException {
         return objectMapper.readTree(result.body());
+    }
+
+    private static Stream<String> invalidCreateCouponBodies() {
+        return Stream.of(
+                "{}",
+                """
+                        {"code":null,"maxUses":5,"countryCode":"PL"}
+                        """,
+                """
+                        {"code":"SAVE-10","maxUses":5,"countryCode":"PL"}
+                        """,
+                """
+                        {"code":"%s","maxUses":5,"countryCode":"PL"}
+                        """.formatted("A".repeat(51)),
+                """
+                        {"code":"SAVE10","maxUses":null,"countryCode":"PL"}
+                        """,
+                """
+                        {"code":"SAVE10","maxUses":-1,"countryCode":"PL"}
+                        """,
+                """
+                        {"code":"SAVE10","maxUses":5,"countryCode":"POL"}
+                        """
+        );
+    }
+
+    private static Stream<String> invalidRedeemBodies() {
+        return Stream.of(
+                "{}",
+                """
+                        {"userId":null}
+                        """,
+                """
+                        {"userId":""}
+                        """,
+                """
+                        {"userId":"%s"}
+                        """.formatted("A".repeat(101))
+        );
     }
 
     private record ApiResult(HttpStatusCode status, String body) {
